@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>트롤 듀얼</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#262b24;--ink:#e9e4d4;--a:#6f86ff;--b:#ffb23e}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:"Jua","Noto Sans KR",system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+canvas{max-width:98vw;max-height:80vh;border:4px solid #14170f;border-radius:6px;background:#3d4a38}
+#help{font-size:15px;opacity:.85;text-align:center;line-height:1.6}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+</head><body>
+<canvas id="c" width="900" height="560"></canvas>
+<div id="help"><b>트롤</b> 이동 WASD · 근접공격 Space &nbsp;|&nbsp; <b>고블린</b> 조준 방향키 · 파이어볼 , (쉼표) · 저주(둔화) . (마침표)</div>
+<script>
+const c = document.getElementById('c'), x = c.getContext('2d');
+const COL = ['#6f86ff', '#ffb23e'];
+let team = -1, S = null, status = '서버에 연결 중…';
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'hello') team = m.team;
+  else if (m.type === 'full') status = '이미 두 팀이 접속해 있어요';
+  else if (m.type === 'state') S = m;
+};
+ws.onclose = () => status = '연결이 끊겼어요. 새로고침 해주세요';
+
+const down = new Set(), USED = ['KeyW','KeyA','KeyS','KeyD','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Comma','Period'];
+const send = () => ws.readyState === 1 && ws.send(JSON.stringify({ keys: [...down] }));
+addEventListener('keydown', e => { if (USED.includes(e.code)) { e.preventDefault(); if (!down.has(e.code)) { down.add(e.code); send(); } } });
+addEventListener('keyup', e => { if (down.delete(e.code)) send(); });
+addEventListener('blur', () => { down.clear(); send(); });
+
+function bar(px, py, w, v, col) { x.fillStyle = '#14170f'; x.fillRect(px, py, w, 8); x.fillStyle = col; x.fillRect(px, py, w * v, 8); }
+function ellipse(a, b, rx, ry, col) { x.fillStyle = col; x.beginPath(); x.ellipse(a, b, rx, ry, 0, 0, 7); x.fill(); }
+
+function troll(p, t) {
+  const R = 24, sw = p.swing > 0;
+  ellipse(p.x, p.y + 20, 22, 8, 'rgba(0,0,0,.25)');
+  if (sw) { x.strokeStyle = '#e9e4d4'; x.lineWidth = 6; x.beginPath(); x.arc(p.x, p.y, 56, Math.atan2(p.fy, p.fx) - .8, Math.atan2(p.fy, p.fx) + .8); x.stroke(); }
+  ellipse(p.x, p.y, R, R, p.slow > 0 ? '#6a7d8a' : '#7f9a6a');
+  x.strokeStyle = COL[t]; x.lineWidth = 4; x.beginPath(); x.arc(p.x, p.y, R, 0, 7); x.stroke();
+  const ex = p.fx * 8, ey = p.fy * 6;
+  ellipse(p.x - 8 + ex, p.y - 3 + ey, 4, 4, '#fff'); ellipse(p.x + 8 + ex, p.y - 3 + ey, 4, 4, '#fff');
+  ellipse(p.x - 8 + ex * 1.3, p.y - 3 + ey * 1.3, 2, 2, '#111'); ellipse(p.x + 8 + ex * 1.3, p.y - 3 + ey * 1.3, 2, 2, '#111');
+  ellipse(p.x, p.y + 11, 8, 3, '#2d3a26');
+  // goblin on shoulder
+  const gx = p.x + 14, gy = p.y - 28;
+  ellipse(gx, gy, 10, 10, '#a6c24a'); ellipse(gx - 11, gy - 2, 5, 3, '#a6c24a'); ellipse(gx + 11, gy - 2, 5, 3, '#a6c24a');
+  ellipse(gx - 3, gy - 1, 2, 2, '#111'); ellipse(gx + 3, gy - 1, 2, 2, '#111');
+  x.strokeStyle = COL[t]; x.lineWidth = 3; x.beginPath(); x.moveTo(gx, gy); x.lineTo(gx + p.ax * 26, gy + p.ay * 26); x.stroke();
+}
+
+function draw() {
+  x.clearRect(0, 0, 900, 560);
+  x.fillStyle = 'rgba(0,0,0,.12)'; for (let i = 0; i < 900; i += 60) for (let j = 0; j < 560; j += 60) if ((i + j) / 60 % 2 == 0) x.fillRect(i, j, 60, 60);
+  if (S && S.G) {
+    const G = S.G;
+    G.b.forEach(b => { ellipse(b.x, b.y, 8, 8, b.type === 'fire' ? '#ff6a2a' : '#b36bff'); ellipse(b.x, b.y, 4, 4, b.type === 'fire' ? '#ffd27a' : '#e6c8ff'); });
+    [0, 1].forEach(t => troll(G.p[t], t));
+    x.font = '16px Jua, sans-serif';
+    [0, 1].forEach(t => {
+      const p = G.p[t], px = t ? 900 - 270 : 20;
+      x.fillStyle = COL[t]; x.textAlign = 'left'; x.fillText((t === team ? '우리 팀' : '상대 팀') + (t === team ? ' (나)' : ''), px, 24);
+      bar(px, 32, 250, p.hp / 100, COL[t]);
+      bar(px, 46, 80, 1 - p.melee / 0.6, '#e9e4d4'); bar(px + 85, 46, 80, 1 - p.fire / 0.7, '#ff6a2a'); bar(px + 170, 46, 80, 1 - p.curse / 3.5, '#b36bff');
+    });
+    x.textAlign = 'center'; x.font = '36px Jua, sans-serif'; x.fillStyle = '#e9e4d4';
+    if (!S.connected[0] || !S.connected[1]) x.fillText('상대 노트북을 기다리는 중…', 450, 280);
+    else if (G.winner >= 0) { x.fillStyle = COL[G.winner]; x.fillText((G.winner === team ? '승리! 🎉' : '패배…') + '  곧 다시 시작해요', 450, 280); }
+  } else { x.textAlign = 'center'; x.font = '30px Jua, sans-serif'; x.fillStyle = '#e9e4d4'; x.fillText(status, 450, 280); }
+  requestAnimationFrame(draw);
+}
+draw();
+</script></body></html>
